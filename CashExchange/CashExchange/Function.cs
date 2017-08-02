@@ -79,7 +79,7 @@ namespace CashExchange
                             log.Log("Help intent");
                             outputMessage.Text =
                                 "Ask how much money is worth in other countries. For example, say How much is five dollars worth in Japan";
-                                response.Response.ShouldEndSession = true;
+                                response.Response.ShouldEndSession = false;
                                 break;
                         }
                         case BuiltInIntent.Stop:
@@ -98,62 +98,210 @@ namespace CashExchange
                         }
                         default:
                         {
-                            string country = intentRequest.Intent.Slots["Country"].Value;
-                            int amount = Convert.ToInt32(intentRequest.Intent.Slots["Amount"].Value);
-                            log.Log("Country: " + country);
-                            log.Log("Amount: " + amount);
-                            RestClient countryClient = new RestClient("https://restcountries.eu/rest/v2/");
-
-                            RestRequest countryRequest = new RestRequest()
+                            string country = "";
+                            int amount = default(int);
+                            if (input.Session.New)
                             {
-                                Resource = string.Format("name/{0}", country),
-                                RequestFormat = DataFormat.Json
-                            };
-                            log.Log("getting country info");
+                                log.Log("New session found -- checking slots");
+                                if (string.IsNullOrEmpty(intentRequest.Intent.Slots["Country"].Value) &&
+                                    string.IsNullOrEmpty(intentRequest.Intent.Slots["Amount"].Value))
+                                {
+                                        log.Log("prompting for full ask");
+                                        text =
+                                    "Ask how much money is worth in other countries. For example, say How much is five dollars worth in Japan";
+                                        response.Response.ShouldEndSession = false;
+                                }
+                                else if (string.IsNullOrEmpty(intentRequest.Intent.Slots["Country"].Value) ||
+                                         string.IsNullOrEmpty(intentRequest.Intent.Slots["Amount"].Value))
+                                {
+                                    if (string.IsNullOrEmpty(intentRequest.Intent.Slots["Country"].Value))
+                                    {
+                                        log.Log("prompting for country");
+                                        text = "Sorry, I didn't get the country. What country do you want to check conversion for?";
+                                            
+                                        response.Response.ShouldEndSession = false;
+                                    }
+                                    else
+                                    {
+                                        log.Log("adding country to session attributes");
+                                        country = intentRequest.Intent.Slots["Country"].Value;
+                                        response.SessionAttributes.Add("Country", country);
+                                    }
 
-                            var resp = await countryClient.ExecuteAsyncExt(countryRequest);
-                            log.Log(resp.Content);
-                            var countryContent =
-                                JsonConvert.DeserializeObject<List<Country>>(resp.Content).FirstOrDefault();
-
-                            log.Log(countryContent.currencies.First().code);
-                            try
+                                    if (string.IsNullOrEmpty(intentRequest.Intent.Slots["Amount"].Value))
+                                    {
+                                        log.Log("prompting for amount");
+                                        text = "Sorry, I didn't get the amount. How much money would you like to convert?";
+                                        response.Response.ShouldEndSession = false;
+                                    }
+                                    else
+                                    {
+                                        log.Log("adding amount to session attributes");
+                                        amount = Convert.ToInt32(intentRequest.Intent.Slots["Amount"].Value);
+                                        response.SessionAttributes.Add("Amount", amount);
+                                    }
+                                }
+                                else if(!(string.IsNullOrEmpty(intentRequest.Intent.Slots["Country"].Value) &&
+                                    string.IsNullOrEmpty(intentRequest.Intent.Slots["Amount"].Value)))
+                                {
+                                    log.Log("adding amount to session attributes");
+                                    amount = Convert.ToInt32(intentRequest.Intent.Slots["Amount"].Value);
+                                    response.SessionAttributes.Add("Amount", amount);
+                                    log.Log("adding country to session attributes");
+                                    country = intentRequest.Intent.Slots["Country"].Value;
+                                    response.SessionAttributes.Add("Country", country);
+                                }                                
+                            }
+                            else
                             {
-                                RestClient currencyClient = new RestClient("http://api.fixer.io/");
-                                RestRequest currencyRequest = new RestRequest()
+                                object sessionCountry = null;
+                                object sessionAmount = null;
+
+                                if (input.Session.Attributes != null)
                                 {
-                                    Resource = string.Format("latest?base=USD")
-                                };
+                                    response.SessionAttributes = input.Session.Attributes;
+                                    input.Session.Attributes.TryGetValue("Country", out sessionCountry);
 
-                                log.Log("getting currency info");
-                                var exResp = await currencyClient.ExecuteAsyncExt(currencyRequest);
-                                var currencyContent = JsonConvert.DeserializeObject<ExchangeRate>(exResp.Content);
-                                log.Log(exResp.Content);
+                                    input.Session.Attributes.TryGetValue("Amount", out sessionAmount);
 
-                                log.Log("getting value for code");
-
-                                double multi = 1;
-
-                                PropertyInfo pinfo = typeof(Rates).GetProperty(countryContent.currencies.First().code);
-                                if (pinfo != null)
-                                {
-                                    object value = pinfo.GetValue(currencyContent.rates, null);
-                                    multi = (double) value;
                                 }
 
+                                if (string.IsNullOrEmpty(intentRequest.Intent.Slots["Country"].Value) &&
+                                sessionCountry == null)
+                                {
+                                    log.Log("prompting for country");
+                                    text = "Sorry, I didn't get the country. What country do you want to check conversion for?";
 
-                                var curValue = amount*multi;
-                                log.Log("value: " + curValue);
+                                    response.Response.ShouldEndSession = false;
+                                }
+                                else
+                                {
+                                    log.Log("got country");
+                                    country = intentRequest.Intent.Slots["Country"].Value ??
+                                              sessionCountry?.ToString();
+                                    if (!response.SessionAttributes.ContainsKey("Country"))
+                                    {
+                                        response.SessionAttributes.Add("Country", country);
 
-                                log.Log("setting text");
-                                text = string.Format("In {0}, {1} dollars is worth {2} {3}", country, amount, curValue.ToString("F2"),
-                                    countryContent.currencies.First().name);
-                                response.Response.ShouldEndSession = true;
+                                    }
+                                }
+
+                                if (string.IsNullOrEmpty(intentRequest.Intent.Slots["Amount"].Value) &&
+                                    sessionAmount == null)
+                                {
+                                        log.Log("prompting for amount");
+                                        text = "Sorry, I didn't get the amount. How much money would you like to convert?";
+                                        response.Response.ShouldEndSession = false;
+                                    }
+                                    else
+                                    {
+                                        log.Log("got amount");
+                                        amount = Convert.ToInt32((intentRequest.Intent.Slots["Amount"].Value ?? sessionAmount?.ToString()));
+                                        if (!response.SessionAttributes.ContainsKey("Amount"))
+                                        {
+                                            response.SessionAttributes.Add("Amount", amount);
+                                        }
+                                        
+                                    }
                             }
-                            catch (Exception ex)
+                                //country = intentRequest.Intent.Slots["Country"].Value;
+                                //amount = Convert.ToInt32(intentRequest.Intent.Slots["Amount"].Value);
+
+                            if (!string.IsNullOrEmpty(country) && amount != default(int))
                             {
-                                log.Log(ex.Message);
-                                text = "Sorry, couldn't find that exchange rate";
+                                log.Log("Country: " + country);
+                                log.Log("Amount: " + amount);
+
+                                string code = "";
+                                string currencyName = "";
+                                if (country.Equals("India"))
+                                {
+                                    code = "INR";
+                                    currencyName = "Indian rupee";
+                                }
+                                else
+                                {
+                                    RestClient countryClient = new RestClient("https://restcountries.eu/rest/v2/");
+
+                                    RestRequest countryRequest = new RestRequest()
+                                    {
+                                        Resource = string.Format("name/{0}", country),
+                                        RequestFormat = DataFormat.Json
+                                    };
+                                    log.Log("getting country info");
+
+                                    try
+                                    {
+                                        var resp = await countryClient.ExecuteAsyncExt(countryRequest);
+                                        log.Log(resp.Content);
+                                        var countryContent =
+                                            JsonConvert.DeserializeObject<List<Country>>(resp.Content).FirstOrDefault();
+
+                                        code = countryContent.currencies.First().code;
+                                        currencyName = countryContent.currencies.First().name;
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                       log.Log(ex.Message); 
+                                    }
+
+
+                                }
+                                log.Log(code);
+
+                                if (!string.IsNullOrEmpty(code))
+                                {
+                                    try
+                                    {
+                                        RestClient currencyClient = new RestClient("http://api.fixer.io/");
+                                        RestRequest currencyRequest = new RestRequest()
+                                        {
+                                            Resource = string.Format("latest?base=USD")
+                                        };
+
+                                        log.Log("getting currency info");
+                                        var exResp = await currencyClient.ExecuteAsyncExt(currencyRequest);
+                                        var currencyContent = JsonConvert.DeserializeObject<ExchangeRate>(exResp.Content);
+                                        log.Log(exResp.Content);
+
+                                        log.Log("getting value for code");
+
+                                        double multi = 1;
+
+                                        PropertyInfo pinfo = typeof (Rates).GetProperty(code);
+                                        if (pinfo != null)
+                                        {
+                                            object value = pinfo.GetValue(currencyContent.rates, null);
+                                            multi = (double) value;
+                                        }
+
+
+                                        var curValue = amount*multi;
+                                        log.Log("value: " + curValue);
+
+                                        log.Log("setting text");
+                                        text = string.Format("In {0}, {1} dollars is worth {2} {3}", country, amount,
+                                            curValue.ToString("F2"),
+                                            currencyName);
+                                        response.Response.ShouldEndSession = true;
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        log.Log(ex.Message);
+                                        text = "Sorry, couldn't find that exchange rate";
+                                    }
+                                }
+                                else
+                                {
+                                    text =
+                                        "Sorry, I didn't understand that country. What country do you want to check conversion for?";
+                                    if (response.SessionAttributes.ContainsKey("Country"))
+                                    {
+                                        response.SessionAttributes.Remove("Country");
+
+                                    }
+                                    response.Response.ShouldEndSession = false;
+                                }
                             }
 
                             log.Log("saving text to output");
@@ -167,6 +315,8 @@ namespace CashExchange
             catch (Exception ex)
             {
                 log.Log(ex.Message);
+                //log.Log(ex.InnerException.Message);
+                log.Log(ex.StackTrace);
                 throw;
             }
 
