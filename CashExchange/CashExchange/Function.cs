@@ -58,7 +58,7 @@ namespace CashExchange
             try
             {
 
-                if (input.GetRequestType() == typeof (LaunchRequest))
+                if (requestType == typeof (LaunchRequest))
                 {
                     log.LogLine($"Default LaunchRequest made");
 
